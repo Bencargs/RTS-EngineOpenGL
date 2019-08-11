@@ -1,0 +1,343 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <GL/glut.h>
+#include <math.h>
+#include <sys/stat.h> 
+
+static float angle=0.0,ratio;
+static float x=0.0f,y=1.75f,z=5.0f;
+static float lx=0.0f,ly=0.0f,lz=-1.0f;
+
+char s[30];//array holds the FPS
+int frame = 0;//frames since last check
+int time = 0;//elapsed time in ms
+int timebase = 0;//ms since last check
+
+//http://www.gamedev.net/community/forums/topic.asp?topic_id=312335
+//Vertex coords, Vertex Normals, Vertex Texcoords, Faces, and Groups
+int	Vc, Nc, Tc, Fc;
+typedef struct ObjVertex {
+     float X, Y, Z;
+} ObjVertex;
+
+typedef struct ObjNormal {
+     float X, Y, Z;
+} ObjNormal;
+
+typedef struct ObjTexCoord {
+     float U, V;
+} ObjTexCoord;
+
+typedef struct ObjTriangle {
+     int Vertex[3];
+     int Normal[3];
+     int TexCoord[3];
+} ObjTriangle;
+
+typedef struct ObjModel {
+     int NumVertex, NumNormal, NumTexCoord, NumTriangle;
+
+     ObjVertex *VertexArray;
+     ObjNormal *NormalArray;
+     ObjTexCoord *TexCoordArray;
+
+     ObjTriangle *TriangleArray;
+} ObjModel;
+
+ObjModel* cube;
+
+/* Return 1 if strings are equal, 0 if not */
+/* Make sure we don't ever pass the given end (E) */
+int StrEqual(char *A, char *B, char *E, int count)
+{
+	int c;
+	c = 0;
+	while ((c < count) && (A != E))
+	{
+		 if (A[c] != B[c]) return 0;
+		 c++;
+     }
+     if (A == E) return 0;
+      else return 1;
+}
+
+/* Return 1 if the character is dead space, 0 if not */
+int IsNumeric(char A)
+{
+	if (A == '.') return 1;
+	if (A == '-') return 1;
+	if ((A >= 0x30) && (A <= 0x39)) return 1;
+	return 0;
+}
+
+
+/* Return 1 if the character is dead space, 0 if not */
+int IsDeadSpace(char A)
+{
+    	if (A < 33) return 1;
+	 else return 0;
+}
+
+/* Return 1 if the character is a newline/linefeed, 0 if not */
+int IsEOL(char A)
+{
+	if (A == 10) return 1;
+	 else return 0;
+}
+
+ObjModel* ObjLoadModel(char *mem, int sz)
+{
+	char *p, *e;
+	char b[512];
+	int c;
+	ObjModel *ret;
+	
+	// the returned model struct, allocate and clear
+	ret = calloc(1,sizeof(ObjModel));
+	
+	// current position and end location pointers
+	p = mem;
+	e = mem + sz;
+
+	// first pass, scan the number of vertex, normals, texcoords, and faces
+	while (p != e)
+	{
+		 // nibble off one line, ignoring leading dead space
+		 c = 0;
+		 while ((IsDeadSpace(*p)) && (p != e)) p++;
+		 while ((!IsEOL(*p)) && (p != e) && (c < 512)) { b[c++] = *p; p++; }
+	 
+		 // ok, b[] contains the current line
+		if( strcmp(b, "vn")) ret->NumNormal++;
+		else
+		if( strcmp(b, "vt")) ret->NumTexCoord++;
+		else
+		if( strcmp(b, "v")) ret->NumVertex++;
+		else
+		if( strcmp(b, "f")) ret->NumTriangle++;
+/*
+		 if (StrEqual(b,"vn",&b[c],2)) ret->NumNormal++;
+		  else
+		 if (StrEqual(b,"vt",&b[c],2)) ret->NumTexCoord++;
+		  else
+		 if (StrEqual(b,"v",&b[c],1)) ret->NumVertex++;
+		  else
+		 if (StrEqual(b,"f",&b[c],1)) ret->NumTriangle++;
+*/
+     }
+     
+     // now allocate the arrays
+     ret->VertexArray = malloc(sizeof(ObjVertex)*ret->NumVertex);
+     ret->NormalArray = malloc(sizeof(ObjNormal)*ret->NumNormal);
+     ret->TexCoordArray = malloc(sizeof(ObjTexCoord)*ret->NumTexCoord);
+     ret->TriangleArray = malloc(sizeof(ObjTriangle)*ret->NumTriangle);
+     // finally, go back and scan the values
+	p = mem;
+	Vc = Nc = Tc = Fc = 0;
+	
+	while (p != e)
+	{
+		 // nibble off one line, ignoring leading dead space
+		 c = 0;
+		 while ((IsDeadSpace(*p)) && (p != e)) p++;
+		 while ((!IsEOL(*p)) && (p != e) && (c < 512)) { b[c++] = *p; p++; }
+
+		 // ok, b[] contains the current line
+//		 if (StrEqual(b,"vn",&b[c],2))
+		if (strcmp(b, "vn"))
+		 {
+			sscanf(b,"vn %f %f %f",&ret->NormalArray[Nc].X,&ret->NormalArray[Nc].Y,&ret->NormalArray[Nc].Z);
+			Nc++;
+           }
+		  else
+		 if (StrEqual(b,"vt",&b[c],2))
+		 {
+			sscanf(b,"vt %f %f",&ret->TexCoordArray[Tc].U,&ret->TexCoordArray[Tc].V);
+			Tc++;
+           }
+		  else
+//		 if (StrEqual(b,"v",&b[c],1))
+		if (strcmp(b, "v"))
+		 {
+			sscanf(b,"v %f %f %f",&ret->VertexArray[Vc].X,&ret->VertexArray[Vc].Y,&ret->VertexArray[Vc].Z);
+			Vc++;
+           }
+		  else
+		 if (StrEqual(b,"f",&b[c],1))
+		 {
+			sscanf(b,"f %d/%d/%d %d/%d/%d %d/%d/%d",
+                      &ret->TriangleArray[Fc].Vertex[0],&ret->TriangleArray[Fc].TexCoord[0],&ret->TriangleArray[Fc].Normal[0],
+				  &ret->TriangleArray[Fc].Vertex[1],&ret->TriangleArray[Fc].TexCoord[1],&ret->TriangleArray[Fc].Normal[1],
+				  &ret->TriangleArray[Fc].Vertex[2],&ret->TriangleArray[Fc].TexCoord[2],&ret->TriangleArray[Fc].Normal[2]);
+			Fc++;
+           }
+     }     
+     return ret;
+}
+
+
+
+void rotateX(float ang)
+{
+	glRotatef(ang,1,0,0);
+}
+
+void rotateY(float ang)
+{
+	glRotatef(ang,0,1,0);
+}
+
+void moveMeFlat(float direction) 
+{
+	glTranslatef(0,0,direction);
+}
+
+void keyPress(unsigned char key, int x, int y) 
+{
+	switch (key)
+	{//X+Y are confused
+		case 27:
+			exit(0);
+		case 122://z zoom in
+			moveMeFlat(10.0);break;
+		case 90://Z zoom out
+			moveMeFlat(-10.0);break;
+		case 120://x rotate about x clockwise
+			//angle += 0.01f;
+			rotateX(1);break;
+		case 88://X rotate about x anti-clockwise
+			//angle -=0.01f;
+			rotateX(-1);break;
+		case 121://y rotate about y clockwise
+			//angle += 0.01f;
+			rotateY(1);break;
+		case 89://Y rotate about y anti-clockwise
+			//angle -= 0.01f;
+			rotateY(-1);break;
+		case 112://p for flat polygons
+			glDisable (GL_BLEND);
+			glShadeModel (GL_SMOOTH);
+			glDisable (GL_POLYGON_SMOOTH);
+			break;
+		case 80://P for smooth shaded polygons (anti aliasing
+			glEnable (GL_POLYGON_SMOOTH);
+			glShadeModel (GL_FLAT);
+			glEnable (GL_BLEND);
+			break;
+		case 127://reset
+			glLoadIdentity();
+		gluLookAt(x, y, z, 
+		      x = 0,y = 12,z = -6,
+			  0.0f,1.0f,0.0f);
+	}
+}
+
+void initRendering() 
+{
+	glEnable(GL_TEXTURE_2D);// Enable Texture Mapping
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_COLOR_MATERIAL);//enables colors
+	glEnable(GL_LIGHTING);//turns lighting on
+	glEnable(GL_LIGHT0);
+	glClearColor(0.7f, 0.9f, 1.0f, 1.0f);//changes background to sky color
+}
+
+//Called when the window is resized
+void resize(int w, int h)
+{
+	if(h == 0)
+		h = 1;
+
+	ratio = 1.0f * w / h;
+	glMatrixMode(GL_PROJECTION);//Switch to setting camera perspective
+	glLoadIdentity();//Reset Camera
+	
+    	glViewport(0, 0, w, h);//converts from corrdinates to pixel values
+
+	gluPerspective(45,ratio,0.1,800);
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();//Reset Camera again
+	y=5;
+	z=25;
+	gluLookAt(x, y, z, 
+		  	x + lx,y + ly,z + lz,
+			0.0f,1.0f,0.0f);
+	}
+
+void renderBitmapString(float x, float y, void *font, char *string) 
+{  
+	char *c;//take in string
+	glRasterPos2f(x,y);//set position for text
+	for (c=string; *c != '\0'; c++) //untill no more characters;
+	{
+		glutBitmapCharacter(font, *c);//put text in possition
+	}
+}
+
+void drawScene() 
+{
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	GLfloat ambientColor[] = {0.2f, 0.2f, 0.2f, 1.0f};
+	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, ambientColor);
+	glColor3f(0.60f,0.60f, 0.60f);
+
+    GLfloat lightColor0[] = {0.5f, 0.5f, 0.5f, 1.0f}; //Color (0.5, 0.5, 0.5)
+    GLfloat lightPos0[] = {30.0f, 30.0f, 10.0f, 1.0f}; //Positioned at (4, 0, 8)
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, lightColor0);
+    glLightfv(GL_LIGHT0, GL_POSITION, lightPos0);
+
+//  glPushMatrix();
+//  glTranslatef(0.0f, 0.0f, -10.0f);
+	struct stat file_status;
+	if((stat("cube.obj", &file_status)) != -1)
+	{
+		cube = ObjLoadModel("cube.obj", file_status.st_size);
+//		printf("%d\n", cube.NumVertex);
+		cube = {6};
+		printf("%d\n", cube.NumVertex);
+	}
+//  glPopMatrix();
+
+/*
+typedef struct ObjModel {
+     int NumVertex, NumNormal, NumTexCoord, NumTriangle;
+
+     ObjVertex *VertexArray;
+     ObjNormal *NormalArray;
+     ObjTexCoord *TexCoordArray;
+
+     ObjTriangle *TriangleArray;
+} ObjModel;
+*/
+
+	frame++;//increase frame count
+	time=glutGet(GLUT_ELAPSED_TIME);//get elapsed time
+	if (time - timebase > 1000)//if more than 1 second;
+	{//print out time
+		sprintf(s,"FPS:%4.2f",frame*1000.0/(time-timebase));
+		timebase = time;
+		frame = 0;
+	}
+	renderBitmapString(0, 0, GLUT_BITMAP_8_BY_13,s);//print to screen
+
+	glutSwapBuffers(); //Send the 3D scene to the screen
+
+}
+
+int main(int argc, char** argv) 
+{
+	glutInit(&argc, argv);
+	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
+	glutInitWindowSize(800, 400); //Set the window size
+    
+	glutCreateWindow("'Up It Goes' Assignment. - Ben Cargill");
+	glutKeyboardFunc(keyPress);
+	glutDisplayFunc(drawScene);
+	glutIdleFunc(drawScene);//render if not doing anything, animate
+	glutReshapeFunc(resize);
+	initRendering(); //Initialize rendering
+	glutMainLoop(); //Start the main loop.  glutMainLoop doesn&apos;t return.
+	return 0; //This line is never reached
+}
+
